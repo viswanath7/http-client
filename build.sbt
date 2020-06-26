@@ -39,7 +39,7 @@ libraryDependencies ++= cats ++ Seq(
   "ch.qos.logback"                % "logback-classic"                 % logbackVersion,
   "com.typesafe.scala-logging"    %% "scala-logging"                  % scalaLoggingVersion,
   "org.apache.commons"             % "commons-lang3"                  % "3.10"
-) ++ refined ++ ciris
+)
 
 scalacOptions ++= Seq(
   "-deprecation", // Emit warning and location for usages of deprecated APIs.
