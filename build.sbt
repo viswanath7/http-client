@@ -1,6 +1,6 @@
 name := "http-client"
 
-version := "1"
+version := "2"
 
 scalaVersion := "2.13.2"
 

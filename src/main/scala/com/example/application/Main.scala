@@ -1,7 +1,9 @@
 package com.example.application
 
+import cats._
+import implicits._
 import cats.effect._
-import cats.implicits._
+import cats.instances.map
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.Logger
 import org.apache.commons.lang3.StringUtils
@@ -10,12 +12,19 @@ import scalaj.http._
 object Main extends IOApp {
 
   private[this] val logger = Logger("com.example.application.Main")
-
-  lazy val configuration: IO[String] = for {
-    rawServiceBase <- IO(ConfigFactory.load().getString("backend.service.base"))
-    servicePath <- IO(ConfigFactory.load().getString("backend.service.path"))
-    serviceBase <- IO(if(rawServiceBase.matches("^(?i)(https?|ftp|file)://.*$")) rawServiceBase else s"http://$rawServiceBase")
-  } yield s"${StringUtils.removeEndIgnoreCase(serviceBase, "/")}/${StringUtils.removeStartIgnoreCase(servicePath, "/")}"
+  lazy val configuration: IO[List[String]] = for {
+    serviceBases <- IO {
+      ConfigFactory.load().getString("backend.service.base").split('|')
+        .map(base => if(base.matches("^(?i)(https?|ftp|file)://.*$")) base else s"http://$base")
+        .map(base => s"${StringUtils.removeEndIgnoreCase(base, "/")}")
+    }
+    servicePaths <- IO{
+      ConfigFactory.load().getString("backend.service.path").split('|')
+        .map(path => s"${StringUtils.removeStartIgnoreCase(path, "/")}")
+    }
+  } yield {
+    serviceBases.zip(servicePaths).map(pair => s"${pair._1}/${pair._2}").toList
+  }
 
 
   override def run(args: List[String]): IO[ExitCode] = {
@@ -24,14 +33,11 @@ object Main extends IOApp {
     import cats.effect.Timer
     import scala.concurrent.ExecutionContext.global
     implicit val timer: Timer[IO] = IO timer global
-
-
     def sideEffect: IO[Unit] = {
       def serviceOutput: IO[Unit] = for {
-        serviceURL <- configuration
-        httpResponse <- IO{logger info s"Fetching response from URL $serviceURL..."} *> IO{Http(serviceURL).header("Accept", "application/json").asString}
-      } yield logger info s"Response body: ${httpResponse.body}"
-
+        serviceURLs <- configuration
+        aggregatedHTTPResponses <- serviceURLs.parTraverse(serviceURL =>  IO{logger info s"Fetching response from URL $serviceURLs..."} *> IO{Http(serviceURL).header("Accept", "application/json").asString})
+      } yield aggregatedHTTPResponses.foreach(response => logger info s"Response body: ${response.body}")
       def invokeServiceRepeatedly: IO[Unit] = serviceOutput >> IO.sleep(10 seconds) >> IO.suspend(invokeServiceRepeatedly)
       for {
         fiber <- invokeServiceRepeatedly.start
